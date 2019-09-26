@@ -30,6 +30,7 @@
 #include "BufferedConnection.h"
 #include "DocLayer.h"
 #include "MetadataManager.h"
+#include "Oplogger.h"
 
 #include "QLPlan.actor.h"
 
@@ -100,6 +101,34 @@ Future<WriteResult> lastErrorOrLastResult(Future<WriteResult> const& previous,
                                           Future<WriteResult> const& next,
                                           FlowLock* const& lock);
 
+struct ExtChangeStream : ReferenceCounted<ExtChangeStream>, NonCopyable {
+	std::map<int64_t, PromiseStream<Standalone<StringRef>>> connections;
+
+	FutureStream<Standalone<StringRef>> newConnection(int64_t connectionId);
+	void deleteConnection(int64_t connectionId);
+	void writeMessage(Standalone<StringRef> msg);
+	void clear();
+	int countConnections();
+};
+
+struct ExtChangeWatcher: ReferenceCounted<ExtChangeWatcher>, NonCopyable {
+	Reference<DocumentLayer> docLayer;
+	Reference<ExtChangeStream> changeStream;
+	FutureStream<double> tsStreamReader;
+	PromiseStream<double> tsStreamWriter;
+	PromiseStream<double> tsScanPromise;
+	FutureStream<double> tsScanFuture;
+
+	ExtChangeWatcher(Reference<DocumentLayer> docLayer, Reference<ExtChangeStream> changeStream): 
+	docLayer(docLayer), changeStream(changeStream) {
+		tsStreamReader = tsStreamWriter.getFuture();
+		tsScanFuture = tsScanPromise.getFuture();
+	};
+
+	void update(double timestamp);
+	void watch();
+};
+
 struct ExtConnection : ReferenceCounted<ExtConnection>, NonCopyable {
 	Reference<DocumentLayer> docLayer;
 	Reference<MetadataManager> mm;
@@ -108,15 +137,22 @@ struct ExtConnection : ReferenceCounted<ExtConnection>, NonCopyable {
 	int64_t connectionId;
 	Reference<BufferedConnection> bc;
 	Future<WriteResult> lastWrite;
+	Reference<ExtChangeWatcher> watcher;
 
 	Reference<DocTransaction> getOperationTransaction();
 	Reference<Plan> wrapOperationPlan(Reference<Plan> plan, bool isReadOnly, Reference<UnboundCollectionContext> cx);
 	Reference<Plan> isolatedWrapOperationPlan(Reference<Plan> plan);
 	Reference<Plan> isolatedWrapOperationPlan(Reference<Plan> plan, int64_t timeout, int64_t retryLimit);
+	Reference<Plan> wrapOperationPlanOplog(Reference<Plan> plan,
+										Reference<IOplogInserter> oplogInserter, 
+										Reference<UnboundCollectionContext> cx);
 	Future<Void> beforeWrite(int desiredPermits = 1);
 	Future<Void> afterWrite(Future<WriteResult> result, int releasePermits = 1);
 
-	ExtConnection(Reference<DocumentLayer> docLayer, Reference<BufferedConnection> bc, int64_t connectionId)
+	ExtConnection(Reference<DocumentLayer> docLayer, 
+				  Reference<BufferedConnection> bc, 
+				  int64_t connectionId, 
+				  Reference<ExtChangeWatcher> watcher)
 	    : docLayer(docLayer),
 	      bc(bc),
 	      lastWrite(WriteResult()),
@@ -125,6 +161,7 @@ struct ExtConnection : ReferenceCounted<ExtConnection>, NonCopyable {
 	      cursors(),
 	      mm(docLayer->mm),
 	      connectionId(connectionId),
+		  watcher(watcher),
 	      maxReceivedRequestID(0),
 	      nextServerGeneratedRequestID(0) {}
 

@@ -34,6 +34,8 @@
 #include "IDispatched.h"
 #include "QLPlan.actor.h"
 #include "QLPredicate.h"
+#include "QLOperations.h"
+#include "Oplogger.h"
 
 #include "flow/flow.h"
 
@@ -235,6 +237,16 @@ struct ExtMsgKillCursors : ExtMsg, FastAllocated<ExtMsgKillCursors> {
 private:
 	ExtMsgKillCursors(ExtMsgHeader*, const uint8_t*);
 	friend struct ExtMsg::Factory<ExtMsgKillCursors>;
+};
+
+struct DocInserter: IOplogInserter, ReferenceCounted<DocInserter>, FastAllocated<DocInserter> {
+	Reference<ExtChangeWatcher> watcher;
+
+	void addref() override { ReferenceCounted<DocInserter>::addref(); }
+	void delref() override { ReferenceCounted<DocInserter>::delref(); }
+	
+	DocInserter(Reference<ExtChangeWatcher> watcher): watcher(watcher) {};
+	Future<Reference<IReadWriteContext>> insert(Reference<CollectionContext> cx, bson::BSONObj obj) override;
 };
 
 Reference<Plan> planQuery(Reference<UnboundCollectionContext> cx, const bson::BSONObj& query);

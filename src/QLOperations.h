@@ -56,7 +56,7 @@ struct DeleteDocument : ConcreteUpdateOp<DeleteDocument> {
 		document->clearRoot();
 		return Future<Void>(Void());
 	}
-	std::string describe() override { return "delete document"; }
+	std::string describe() override { return DocLayerConstants::DESCRIBE_DELETE_DOC; }
 };
 
 #endif

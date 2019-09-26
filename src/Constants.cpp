@@ -37,6 +37,26 @@ const std::string INDICES_KEY = "indices";
 const std::string SYSTEM_INDEXES = "system.indexes";
 const std::string SYSTEM_NAMESPACES = "system.namespaces";
 
+const double OPLOG_EXPIRATION_TIME = 172800000; // delete oplog 2 days ago
+const double OPLOG_CLEAN_INTERVAL = 600; // clean every 10 minutes
+
+const std::string OPLOG_DB = "local";
+const std::string OPLOG_COL = "oplog.rs";
+
+const std::string OP_UPDATE = "u";
+const std::string OP_INSERT = "i";
+const std::string OP_DELETE = "d";
+
+const std::string DESCRIBE_DELETE_DOC = "delete document";
+
+const char* OP_FIELD_TS = "ts";
+const char* OP_FIELD_H = "h";
+const char* OP_FIELD_V = "v";
+const char* OP_FIELD_OP = "op";
+const char* OP_FIELD_NS = "ns";
+const char* OP_FIELD_O2 = "o2";
+const char* OP_FIELD_O = "o";
+
 const char* ID_FIELD = "_id";
 const char* KEY_FIELD = "key";
 const char* BUILD_ID_FIELD = "build id";

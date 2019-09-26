@@ -46,6 +46,33 @@ extern const std::string INDICES_KEY;
 extern const std::string SYSTEM_INDEXES;
 extern const std::string SYSTEM_NAMESPACES;
 
+// Oplog expiration time in mills
+extern const double OPLOG_EXPIRATION_TIME;
+
+// Clean loop delay in mills
+extern const double OPLOG_CLEAN_INTERVAL;
+
+// Oplog namespace info
+extern const std::string OPLOG_DB;
+extern const std::string OPLOG_COL;
+
+// Oplog operations
+extern const std::string OP_UPDATE;
+extern const std::string OP_INSERT;
+extern const std::string OP_DELETE;
+
+// Delete operation description
+extern const std::string DESCRIBE_DELETE_DOC;
+
+// Oplog Field name constants
+extern const char* OP_FIELD_TS;
+extern const char* OP_FIELD_H;
+extern const char* OP_FIELD_V;
+extern const char* OP_FIELD_OP;
+extern const char* OP_FIELD_NS;
+extern const char* OP_FIELD_O2;
+extern const char* OP_FIELD_O;
+
 // BSON Field name constants
 extern const char* ID_FIELD;
 extern const char* KEY_FIELD;

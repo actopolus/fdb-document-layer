@@ -146,10 +146,11 @@ Reference<IPredicate> queryToPredicate(bson::BSONObj const& query, bool toplevel
 			}
 		} else if (el.isABSONObj() && !is_literal_match(el.Obj())) {
 			// If this is a top-level _id path then force use of elemMatch because _id can NOT be an array.
-			if (toplevel && strcmp(el.fieldName(), DocLayerConstants::ID_FIELD) == 0)
-				terms.push_back(ExtValueOperator::toPredicate("$elemMatch", el.fieldName(), el));
-			else
-				valueQueryToPredicates(el.Obj(), el.fieldName(), terms);
+			// TODO: Fix. It isn't working for {_id: {"$in":[...]}}
+			//if (toplevel && strcmp(el.fieldName(), DocLayerConstants::ID_FIELD) == 0)
+			//	terms.push_back(ExtValueOperator::toPredicate("$elemMatch", el.fieldName(), el));
+			//else
+			valueQueryToPredicates(el.Obj(), el.fieldName(), terms);
 		} else {
 			terms.push_back(eq_predicate(el, el.fieldName()));
 		}
@@ -893,7 +894,14 @@ ACTOR Future<WriteCmdResult> doInsertCmd(Namespace ns,
 	DocumentLayer::metricReporter->captureHistogram(DocLayerConstants::MT_HIST_INSERT_SZ, insertSize);
 	DocumentLayer::metricReporter->captureHistogram(DocLayerConstants::MT_HIST_DOCS_PER_INSERT, documents->size());
 
-	Reference<Plan> plan = ec->isolatedWrapOperationPlan(ref(new InsertPlan(inserts, ec->mm, ns)));
+	Reference<Plan> plan = ref(new InsertPlan(inserts, ec->mm, ns));
+
+	if (strcmp(ns.first.c_str(), DocLayerConstants::OPLOG_DB.c_str()) != 0) {
+		Reference<IOplogInserter> opInserter(new DocInserter(ec->watcher));
+		plan = oplogInsertPlan(plan, documents, opInserter, ec->mm, ns);
+	}
+
+	plan = ec->isolatedWrapOperationPlan(plan);
 	int64_t i = wait(executeUntilCompletionTransactionally(plan, tr));
 
 	DocumentLayer::metricReporter->captureTime(DocLayerConstants::MT_TIME_INSERT_LATENCY_US,
@@ -1101,7 +1109,7 @@ ACTOR Future<WriteCmdResult> doUpdateCmd(Namespace ns,
 			Reference<Plan> plan = planQuery(cx, cmd->selector);
 			plan =
 			    ref(new UpdatePlan(plan, updater, upserter, cmd->multi ? std::numeric_limits<int64_t>::max() : 1, cx));
-			plan = ec->wrapOperationPlan(plan, false, cx);
+			plan = ec->wrapOperationPlanOplog(plan, ref(new DocInserter(ec->watcher)), cx);
 
 			std::pair<int64_t, Reference<ScanReturnedContext>> pair =
 			    wait(executeUntilCompletionAndReturnLastTransactionally(plan, dtr));
@@ -1174,7 +1182,11 @@ ACTOR static Future<Void> doGetMoreRun(Reference<ExtMsgGetMore> getMore, Referen
 	state Reference<ExtMsgReply> reply = Reference<ExtMsgReply>(new ExtMsgReply(getMore->header));
 	state Reference<Cursor> cursor = ec->cursors[getMore->cursorID];
 
-	if (cursor) {
+	if (!cursor) {
+		cursor = Cursor::get(getMore->cursorID);
+	}
+
+	if (cursor) {	
 		try {
 			int32_t returned = wait(addDocumentsFromCursor(cursor, reply, getMore->numberToReturn));
 			reply->replyHeader.startingFrom = cursor->returned - returned;
@@ -1260,7 +1272,7 @@ ACTOR Future<WriteCmdResult> doDeleteCmd(Namespace ns,
 				Reference<Plan> plan = planQuery(cx, it->getField("q").Obj());
 				const int64_t limit = it->getField("limit").numberLong();
 				plan = deletePlan(plan, cx, limit == 0 ? std::numeric_limits<int64_t>::max() : limit);
-				plan = ec->wrapOperationPlan(plan, false, cx);
+				plan = ec->wrapOperationPlanOplog(plan, ref(new DocInserter(ec->watcher)), cx);
 
 				// TODO: BM: <rdar://problem/40661843> DocLayer: Make bulk deletes efficient
 				int64_t deletedRecords = wait(executeUntilCompletionTransactionally(plan, dtr));
@@ -1453,4 +1465,9 @@ Reference<IInsertOp> simpleUpsert(bson::BSONObj const& selector, bson::BSONObj c
 }
 Reference<IInsertOp> operatorUpsert(bson::BSONObj const& selector, bson::BSONObj const& update) {
 	return ref(new ExtOperatorUpsert(selector, update));
+}
+
+Future<Reference<IReadWriteContext>> DocInserter::insert(Reference<CollectionContext> cx, bson::BSONObj obj) {	
+	watcher->update((double)obj.getField(DocLayerConstants::OP_FIELD_TS)._numberLong());
+	return insertDocument(cx, obj, Optional<IdInfo>());
 }

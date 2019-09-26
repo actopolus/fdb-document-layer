@@ -19,11 +19,62 @@
  */
 
 #include "ExtStructs.h"
+#include "ExtUtil.actor.h"
+#include "ExtMsg.actor.h"
 #include "QLPlan.actor.h"
+#include "OplogMonitor.h"
 #include "flow/actorcompiler.h" // This must be the last #include.
+
+// Create connection change stream
+FutureStream<Standalone<StringRef>> ExtChangeStream::newConnection(int64_t connectionId) {
+	PromiseStream<Standalone<StringRef>> changeStream;
+	connections[connectionId] = changeStream;
+	return changeStream.getFuture();
+}
+
+// Delete connection change stream
+void ExtChangeStream::deleteConnection(int64_t connectionId) {
+	connections[connectionId].sendError(end_of_stream());
+	connections.erase(connectionId);
+}
+
+// Write message to change stream
+void ExtChangeStream::writeMessage(Standalone<StringRef> msg) {
+	for(auto &c : connections) {
+		c.second.send(msg);
+	}
+}
+
+// Delete all connections
+void ExtChangeStream::clear() {
+	connections.clear();
+}
+
+// Get connections count
+int ExtChangeStream::countConnections() {
+	return connections.size();
+}
+
+// Update timestamp key
+void ExtChangeWatcher::update(double timestamp) {
+	oplogSendTimestamp(tsStreamWriter, timestamp);
+}
+
+// Watching for updates
+void ExtChangeWatcher::watch() {
+	oplogRunUpdateScanner(tsScanFuture, docLayer, changeStream);	
+	oplogRunStreamWatcher(docLayer, tsStreamReader);
+	oplogRunTimestampWatcher(tsScanPromise, docLayer);
+}
 
 Reference<DocTransaction> ExtConnection::getOperationTransaction() {
 	return NonIsolatedPlan::newTransaction(docLayer->database);
+}
+
+Reference<Plan> ExtConnection::wrapOperationPlanOplog(Reference<Plan> plan,
+												   	  Reference<IOplogInserter> oplogInserter,
+                                                      Reference<UnboundCollectionContext> cx) {
+   return Reference<Plan>(new NonIsolatedPlan(plan, false, cx, docLayer->database, oplogInserter, mm));
 }
 
 Reference<Plan> ExtConnection::wrapOperationPlan(Reference<Plan> plan,
