@@ -501,7 +501,7 @@ ACTOR static Future<Void> doSinglePKLookup(PlanCheckpoint* checkpoint,
                                            Reference<CollectionContext> cx,
                                            DataValue begin,
                                            int scanID) {
-	state FlowLock* flowControlLock = checkpoint->getDocumentFinishedLock();
+	state FlowLock* flowControlLock = checkpoint->getDocumentFinishedLock();	
 	try {
 		state Standalone<StringRef> x = begin.encode_key_part();
 		FDB::KeyRangeRef scanBounds = checkpoint->getBounds(scanID);
@@ -510,7 +510,7 @@ ACTOR static Future<Void> doSinglePKLookup(PlanCheckpoint* checkpoint,
 			if (odv.present()) {
 				wait(flowControlLock->take());
 				dis.send(Reference<ScanReturnedContext>(new ScanReturnedContext(
-				    cx->cx->getSubContext(begin.encode_key_part()), scanID, StringRef(begin.encode_key_part()))));
+					cx->cx->getSubContext(begin.encode_key_part()), scanID, StringRef(begin.encode_key_part()))));
 			}
 		}
 		throw end_of_stream();
@@ -621,7 +621,7 @@ ACTOR static Future<Void> doUnion(FutureStream<Reference<ScanReturnedContext>> a
 
 			if (aFuture.isError()) {
 				aFuture = Never();
-				aOpen = false;
+				aOpen = false;				
 			}
 			if (bFuture.isError()) {
 				bFuture = Never();
@@ -894,7 +894,7 @@ ACTOR static Future<Void> doNonIsolatedRW(PlanCheckpoint* outerCheckpoint,
 				while (!bufferedDocs.empty()) {
 					wait(outerLock->take());
 					Reference<ScanReturnedContext> finishedDoc = bufferedDocs.front();
-					output.send(finishedDoc);
+					output.send(finishedDoc);					
 					++oCount;
 					bufferedDocs.pop_front();
 				}
@@ -1137,38 +1137,45 @@ ACTOR static Future<Void> doOplogInsert(PlanCheckpoint* checkpoint,
 										PromiseStream<Reference<ScanReturnedContext>> output) {
 	state Deque<Future<Reference<IReadWriteContext>>> inserts;
 	state FlowLock* flowControlLock = checkpoint->getDocumentFinishedLock();
-	state Reference<Oplogger> oplogger = ref(new Oplogger(ns, oplogInserter));
+	state Reference<Oplogger> oplogger = ref(new Oplogger(ns, oplogInserter));	
+	state Deque<Future<Reference<IReadWriteContext>>> logs;
 
 	try {
 		try {		
 			if (oplogger->isEnabled()) {
+				state Reference<UnboundCollectionContext> ucx = wait(oplogger->getUnboundContext(mm, tr));
+				state Reference<CollectionContext> ctx = ucx->bindCollectionContext(tr);
+
 				// Oplog. Add inserts.
 				for (const auto& d : *docs) {
 					oplogger->addUpdatedDoc(d);
 				}
+				
+				logs = oplogger->buildOplogs(ctx);
 			}
 
 			loop choose {
 				when(state Reference<ScanReturnedContext> doc = waitNext(input)) {
 					output.send(doc);
 				}
-			}	
+				when(Reference<IReadWriteContext> _doc = wait(logs.empty() ? Never() : logs.front())) {
+					// Oplog. Commit operations.
+					wait(_doc->commitChanges());
+					logs.pop_front();
+				}
+			}
 		} catch (Error& e) {
 			if (e.code() != error_code_end_of_stream)
 				throw;
 		}
 
-		if (oplogger->isEnabled()) {			
-			// Oplog. Commit operations.			
-			state Reference<UnboundCollectionContext> ucx = wait(oplogger->getUnboundContext(mm, tr));
-			state Reference<CollectionContext> ctx = ucx->bindCollectionContext(tr);
-			
-			state int i = 0;
-			state Deque<Future<Reference<IReadWriteContext>>> logs = oplogger->buildOplogs(ctx);
-			for (; i < logs.size(); i++) {
-				Reference<IReadWriteContext> _doc = wait(logs[i]);
-				wait(_doc->commitChanges());		
-			}			
+		if (oplogger->isEnabled()) {
+			// Oplog. Commit operations.
+			while(!logs.empty()) {
+				Reference<IReadWriteContext> _doc = wait(logs.front());
+				wait(_doc->commitChanges());
+				logs.pop_front();
+			}
 		}
 
 		throw end_of_stream();

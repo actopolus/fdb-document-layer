@@ -73,6 +73,16 @@ extern const char* OP_FIELD_NS;
 extern const char* OP_FIELD_O2;
 extern const char* OP_FIELD_O;
 
+// Changes stream buffering and processing settings
+extern const int CHNG_WALL_FIRST_CNT;
+extern const double CHNG_WALL_FIRST_TIMEOUT;
+extern const int CHNG_WALL_SECOND_CNT;
+extern const double CHNG_WALL_SECOND_TIMEOUT;
+extern const int CHNG_WALL_HARD_CNT;
+extern const double CHNG_WATCH_TIMEOUT;
+extern const uint64_t CHNG_VIRT_SIZE;
+extern const uint64_t CHNG_VIRT_CLEAN;
+
 // BSON Field name constants
 extern const char* ID_FIELD;
 extern const char* KEY_FIELD;

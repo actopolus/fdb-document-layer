@@ -40,7 +40,7 @@
 #include "ExtMsg.actor.h"
 #include "IMetric.h"
 #include "StatusService.actor.h"
-#include "OplogMonitor.h"
+#include "OplogMonitor.actor.h"
 
 #include "flow/SystemMonitor.h"
 
@@ -511,7 +511,7 @@ ACTOR void setup(NetworkAddress na,
 				 Reference<ExtChangeStream> changeStream) {
 	state FDB::API* fdb;
 	try {
-		fdb = FDB::API::selectAPIVersion(510);
+		fdb = FDB::API::selectAPIVersion(610);
 		for (auto& knob : client_knobs)
 			fdb->setNetworkOption(FDBNetworkOption::FDB_NET_OPTION_KNOB, knob.first + "=" + knob.second);
 		for (auto& opt : client_network_options)
@@ -618,6 +618,9 @@ ACTOR void setup(NetworkAddress na,
 			}
 		}
 		
+		// Init dirs
+		wait(initVirtualDirs(docLayer));
+
 		// Changes watcher
 		state Reference<ExtChangeWatcher> watcher = Reference<ExtChangeWatcher>(new ExtChangeWatcher(docLayer, changeStream));
 		watcher->watch();
@@ -654,11 +657,10 @@ ACTOR Future<Void> extChangeConnection(Reference<BufferedConnection> bc,
 				when(wait(onError)) {
 					throw success();
 				}
-				when(Standalone<StringRef>msg = waitNext(messages)) {
+				when(Standalone<StringRef> msg = waitNext(messages)) {
 					int64_t mSize = msg.size();
-					bc->write(StringRef((uint8_t*)&(mSize), sizeof(int64_t)));
-					bc->write(LiteralStringRef("\n"));
-					bc->write(msg);
+					auto sizePart = StringRef((uint8_t*)&mSize, sizeof(int64_t));
+					bc->write(sizePart.withSuffix(LiteralStringRef("\n")).withSuffix(msg));
 				}
 			}
 		}

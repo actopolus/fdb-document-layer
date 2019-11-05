@@ -240,13 +240,15 @@ private:
 };
 
 struct DocInserter: IOplogInserter, ReferenceCounted<DocInserter>, FastAllocated<DocInserter> {
-	Reference<ExtChangeWatcher> watcher;
+	Reference<ExtChangeWatcher> watcher;	
+	std::map<std::string, bson::BSONObj> objs;
 
 	void addref() override { ReferenceCounted<DocInserter>::addref(); }
 	void delref() override { ReferenceCounted<DocInserter>::delref(); }
 	
 	DocInserter(Reference<ExtChangeWatcher> watcher): watcher(watcher) {};
 	Future<Reference<IReadWriteContext>> insert(Reference<CollectionContext> cx, bson::BSONObj obj) override;
+	void commit() override;
 };
 
 Reference<Plan> planQuery(Reference<UnboundCollectionContext> cx, const bson::BSONObj& query);
